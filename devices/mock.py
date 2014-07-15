@@ -6,8 +6,10 @@ if not panel.controls():
   # only create controls if we fail to load state.
   b = client.Toggle('foo')
   c = client.Counter('bar')
+  w = client.Watcher('foo')
   panel.add_control(b)
   panel.add_control(c)
+  panel.add_control(w)
 
 print panel.dump_state()
 

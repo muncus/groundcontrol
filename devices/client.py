@@ -29,8 +29,8 @@ Control = Actuator
 
 class Watcher(Control):
   """Base class for controls which respond to state changes."""
-  def event_recived(self, event):
-    if has_key(event, 'name') and event['name'] == self.name:
+  def event_received(self, event):
+    if 'name' in event and event['name'] == self.name:
       print "event for me: %s" % event
 
   def as_dict(self):
