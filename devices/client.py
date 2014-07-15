@@ -5,12 +5,9 @@
 import logging
 import json
 import requests
+import zope.event
 
 BASE_URL = 'http://localhost:9292/devices'
-
-class Watcher(object):
-  """Base class for controls which respond to state changes."""
-  pass
 
 class Actuator(object):
   """ Base class for controls that are manipulated."""
@@ -21,11 +18,25 @@ class Actuator(object):
   def send_event(self, event):
     self.parent.send_event(self, event)
 
+  def event_received(self, event):
+    print "got: %s" % event
+
   def set_value(self, value):
     """Subclasses must implement this to store value."""
     raise NotImplemented
 #alias.
 Control = Actuator
+
+class Watcher(Control):
+  """Base class for controls which respond to state changes."""
+  def event_recived(self, event):
+    if has_key(event, 'name') and event['name'] == self.name:
+      print "event for me: %s" % event
+
+  def as_dict(self):
+    return {'type': 'watcher',
+            'name': self.name,
+           }
 
 
 class Toggle(Actuator):
@@ -35,7 +46,7 @@ class Toggle(Actuator):
 
   def toggle(self):
     self.value = not self.value
-    self.send_event({'value': int(self.value)})
+    self.send_event(self.as_dict())
 
   def set_value(self, value):
     self.value = value['value']
@@ -61,11 +72,11 @@ class Counter(Actuator):
 
   def inc(self, step=1):
     self.value += step
-    self.send_event({'value': self.value})
+    self.send_event(self.as_dict())
 
   def dec(self, step=1):
     self.value -= step
-    self.send_event({'value': self.value})
+    self.send_event(self.as_dict())
 
   def as_dict(self):
     return {'type': 'counter',
@@ -74,18 +85,20 @@ class Counter(Actuator):
 
   @staticmethod
   def from_json(json):
-    x = Toggle(json['name'])
+    x = Counter(json['name'])
     x.value = json['value']
     return x
 
 
 class ControlPanel(object):
-  """Base class for physical interfaces. May contain Actuators and Indicators."""
+  """Base class for physical interfaces. May contain Controls and Watchers."""
+  #TODO: implement an event stream, through Server Send Events.
 
   # Map json type name to object class.
   type_map = {
     'toggle': Toggle,
     'counter': Counter,
+    'watcher': Watcher,
   }
 
   def __init__(self, name, service_url=BASE_URL):
@@ -107,9 +120,17 @@ class ControlPanel(object):
     if name in self.child_map:
       return self.child_map[name]
 
+  def notify(self, name, event, *args, **kwargs):
+    """ Sends an event to only the named controls."""
+    if name not in self.child_map.keys():
+      return
+    for c in self.child_map[name]:
+      if hasattr(c, event):
+        getattr(c, event)(*args, **kwargs)
+
   def controls(self):
-    #return [item for sublist in self.child_map.values() for item in sublist]
-    return self.child_map.values()
+    #return self.child_map.values()
+    return [ item for sublist in self.child_map.values() for item in sublist]
 
   def fetch_state(self):
     """get the current state of this panel from the server."""
@@ -139,8 +160,9 @@ class ControlPanel(object):
     control.parent = self
     if control.name not in self.child_map:
       self.child_map[control.name] = []
-    #self.child_map[control.name].append(control)
-    self.child_map[control.name] = control
+    self.child_map[control.name].append(control)
+    #self.child_map[control.name] = control
+    zope.event.subscribers.append(control.event_received)
 
   def dump_state(self):
     return json.dumps(
@@ -151,7 +173,8 @@ class ControlPanel(object):
       })
 
   def send_event(self, actuator, event):
-    print event
+    #print event
+    zope.event.notify(event)
 
   def save_state(self):
     #name = source_actuator.name
@@ -181,9 +204,12 @@ if __name__ == '__main__':
     b = Toggle('button')
     cp.add_control(b)
 
+  cp.notify('button', 'toggle')
+  print b.as_dict()
+  cp.notify('button', 'toggle')
   print b.as_dict()
   print cp.dump_state()
-  cp.save_state()
+  #cp.save_state()
 
 
   #c = Counter('butts', 2)

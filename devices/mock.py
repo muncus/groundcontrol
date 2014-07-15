@@ -14,11 +14,13 @@ print panel.dump_state()
 while True:
   x = raw_input('waiting for input.')
   if x == 't':
-    panel.get('foo').toggle()
+    panel.notify('foo', 'toggle')
   if x == 'p':
-    panel.get('bar').inc()
+    panel.notify('bar', 'inc')
+  if x == 'P':
+    panel.notify('bar', 'inc', 5)
   if x == 'm':
-    panel.get('bar').dec()
+    panel.notify('bar', 'dec')
   if x == 's':
     print panel.dump_state()
   if x == 'q':
