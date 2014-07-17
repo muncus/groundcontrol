@@ -11,9 +11,9 @@ if not panel.controls():
   panel.add_control(c)
   panel.add_control(w)
 
-print panel.dump_state()
+panel.read_event_stream('http://localhost:8001/e')
 
-while True:
+def readinput():
   x = raw_input('waiting for input.')
   if x == 't':
     panel.notify('foo', 'toggle')
@@ -27,4 +27,9 @@ while True:
     print panel.dump_state()
   if x == 'q':
     panel.save_state()
-    break
+
+def dumpstate():
+  panel.dump_state()
+
+panel.callbacks.append(readinput)
+panel.run()

@@ -6,6 +6,8 @@ import logging
 import json
 import requests
 import zope.event
+import sseclient
+import thread
 
 BASE_URL = 'http://localhost:9292/devices'
 
@@ -19,11 +21,13 @@ class Actuator(object):
     self.parent.send_event(self, event)
 
   def event_received(self, event):
-    print "got: %s" % event
+    """Subclasses may implement this to respond to SSEs."""
+    pass
 
   def set_value(self, value):
     """Subclasses must implement this to store value."""
     raise NotImplemented
+
 #alias.
 Control = Actuator
 
@@ -31,6 +35,7 @@ class Watcher(Control):
   """Base class for controls which respond to state changes."""
   def event_received(self, event):
     if 'name' in event and event['name'] == self.name:
+      self.value = event['value']
       print "event for me: %s" % event
 
   def as_dict(self):
@@ -38,18 +43,23 @@ class Watcher(Control):
             'name': self.name,
            }
 
+  @staticmethod
+  def from_json(json):
+    return Watcher(json['name'])
+
 
 class Toggle(Actuator):
   def __init__(self, name, initial_value=False):
     super(Toggle, self).__init__(name)
     self.value = initial_value
 
-  def toggle(self):
+  def toggle(self, event=None):
     self.value = not self.value
     self.send_event(self.as_dict())
 
   def set_value(self, value):
     self.value = value['value']
+    self.send_event(self.as_dict())
 
   def as_dict(self):
     return {'type': 'toggle',
@@ -92,7 +102,7 @@ class Counter(Actuator):
 
 class ControlPanel(object):
   """Base class for physical interfaces. May contain Controls and Watchers."""
-  #TODO: implement an event stream, through Server Send Events.
+  #TODO: implement an event stream, through Server Send Events, using sseclient
 
   # Map json type name to object class.
   type_map = {
@@ -101,7 +111,13 @@ class ControlPanel(object):
     'watcher': Watcher,
   }
 
+  def read_event_stream(self, url):
+    """Attach to event stream, and read it."""
+    self.sseclient = sseclient.SSEClient(url)
+
   def __init__(self, name, service_url=BASE_URL):
+    self.sseclient = None
+    self.callbacks = []
     self.service_url = service_url
     self.name = name
     self.etag = None # cloudkit requirement.
@@ -194,6 +210,27 @@ class ControlPanel(object):
     print r.reason
     print r.content
 
+  def poll_for_sse(self, *args):
+    for event in self.sseclient:
+      event_data = json.loads(event.data)
+      if 'name' not in event_data:
+        print "Unknown event: %s" % event
+        continue
+      if 'action' in event_data:
+        self.notify(event_data['name'], event_data['action'], event_data)
+      elif 'value' in event_data:
+        self.notify(event_data['name'], 'set_value', event_data)
+      else:
+        self.notify(event_data['name'], 'event_received', event_data)
+    
+
+  def run(self):
+    """Run a loop, waiting for events to happen."""
+    thread.start_new_thread(self.poll_for_sse, (None,))
+    while True:
+      for cb in self.callbacks:
+        cb()
+
 
 
 if __name__ == '__main__':
@@ -209,15 +246,8 @@ if __name__ == '__main__':
   cp.notify('button', 'toggle')
   print b.as_dict()
   print cp.dump_state()
+
+  cp.read_event_stream('http://localhost:8001/e')
+  cp.run()
   #cp.save_state()
-
-
-  #c = Counter('butts', 2)
-  #cp.add_control(c)
-  #b.toggle()
-  #b.toggle()
-  #b.toggle()
-  #c.inc()
-  #c.inc()
-  #c.dec()
 
